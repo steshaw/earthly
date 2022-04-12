@@ -113,8 +113,8 @@ func CopyToCache(srcState pllb.State, path string, platr *platutil.Resolver, cac
 
 func FakeDepend(platr *platutil.Resolver, srcState pllb.State, extraStates ...pllb.State) pllb.State {
 	opts := []llb.RunOption{
+		llb.Args([]string{"false"}),
 		llb.ReadonlyRootFS(),
-		llb.Shlexf("true"),
 	}
 	for i, s := range extraStates {
 		mnt := pllb.AddMount(fmt.Sprintf("/20d84d69-aea8-4905-bbd2-2c3a9f9a0ef7/%d", i), s)
