@@ -490,6 +490,14 @@ func (c *Converter) CopyClassical(ctx context.Context, srcs []string, dest strin
 		srcState = c.buildContextFactory.Construct()
 	}
 
+	customNameOpt := llb.WithCustomNamef(
+		"%sCOPY %s%s%s %s",
+		c.vertexPrefix(false, false, false),
+		strIf(isDir, "--dir "),
+		strIf(ifExists, "--if-exists "),
+		strings.Join(srcs, " "),
+		dest)
+
 	// TODO add support for caches
 	for path, cacheRunOpt := range c.persistentCacheDirs {
 		if dest == path || strings.HasPrefix(dest, path+"/") {
@@ -497,37 +505,22 @@ func (c *Converter) CopyClassical(ctx context.Context, srcs []string, dest strin
 			// then mount that state under "/0d96e302-5583-44f7-9907-6babb3d9782c" (a random uuid that was picked to avoid conflicting with any user paths),
 			// and also mount the CACHE, then use the dockerfile-copy image to copy files into the cache.
 			// We then force buildkit to resolve this opperation before continuing in order to warm the cache.
-
 			filesState := c.platr.Scratch()
 			filesState = llbutil.CopyOp(
 				srcState,
 				srcs,
 				filesState, dest, true, isDir, keepTs, c.copyOwner(keepOwn, chown), chmod, ifExists, false,
 				c.ftrs.UseCopyLink,
-				llb.WithCustomNamef(
-					"%sCOPY %s%s%s %s",
-					c.vertexPrefix(false, false, false),
-					strIf(isDir, "--dir "),
-					strIf(ifExists, "--if-exists "),
-					strings.Join(srcs, " "),
-					dest))
-
-			const copyImg = "docker/dockerfile-copy:v0.1.9@sha256:e8f159d3f00786604b93c675ee2783f8dc194bb565e61ca5788f6a6e9d304061"
-			imgOpts := []llb.ImageOption{llb.MarkImageInternal, llb.Platform(c.platr.LLBNative())}
-			opts := []llb.RunOption{
-				llb.ReadonlyRootFS(),
-				llb.Shlexf("copy %s %s", "/0d96e302-5583-44f7-9907-6babb3d9782c/"+dest, dest),
+				customNameOpt,
+			)
+			c.nonSaveCommand()
+			c.mts.Final.MainState = c.mts.Final.MainState.Run(
+				llb.Args([]string{"/bin/sh", "-c", fmt.Sprintf("set -e; cp -r /0d96e302-5583-44f7-9907-6babb3d9782c/%s/* %s/", dest, dest)}),
+				pllb.AddMount("/0d96e302-5583-44f7-9907-6babb3d9782c", filesState),
 				cacheRunOpt,
-			}
-			copyState := pllb.Image(copyImg, imgOpts...)
-			run := copyState.Run(opts...).AddMount("/0d96e302-5583-44f7-9907-6babb3d9782c/", filesState)
-			transientState := run.Platform(c.platr.ToLLBPlatform(c.platr.Current()))
-			ref, err := llbutil.StateToRef(ctx, c.opt.GwClient, transientState, c.opt.NoCache, c.platr, c.opt.CacheImports.AsMap())
-			if err != nil {
-				return err
-			}
-			_, err = ref.ReadDir(ctx, gwclient.ReadDirRequest{Path: "/"}) // force a solve
-			return err
+				customNameOpt,
+			).Root()
+			return nil
 		}
 	}
 
@@ -537,13 +530,8 @@ func (c *Converter) CopyClassical(ctx context.Context, srcs []string, dest strin
 		srcs,
 		c.mts.Final.MainState, dest, true, isDir, keepTs, c.copyOwner(keepOwn, chown), chmod, ifExists, false,
 		c.ftrs.UseCopyLink,
-		llb.WithCustomNamef(
-			"%sCOPY %s%s%s %s",
-			c.vertexPrefix(false, false, false),
-			strIf(isDir, "--dir "),
-			strIf(ifExists, "--if-exists "),
-			strings.Join(srcs, " "),
-			dest))
+		customNameOpt,
+	)
 	return nil
 }
 
