@@ -493,11 +493,11 @@ func (c *Converter) CopyClassical(ctx context.Context, srcs []string, dest strin
 	// TODO add support for caches
 	for path, cacheRunOpt := range c.persistentCacheDirs {
 		if dest == path || strings.HasPrefix(dest, path+"/") {
-			fmt.Printf("HERE with srcs=%v; dest=%s; path=%s\n", srcs, dest, path)
 			// In order to copy files into the CACHE, we first copy files into a new state,
 			// then mount that state under "/0d96e302-5583-44f7-9907-6babb3d9782c" (a random uuid that was picked to avoid conflicting with any user paths),
 			// and also mount the CACHE, then use the dockerfile-copy image to copy files into the cache.
 			// We then force buildkit to resolve this opperation before continuing in order to warm the cache.
+
 			filesState := c.platr.Scratch()
 			filesState = llbutil.CopyOp(
 				srcState,
@@ -512,20 +512,22 @@ func (c *Converter) CopyClassical(ctx context.Context, srcs []string, dest strin
 					strings.Join(srcs, " "),
 					dest))
 
-			transientState := llbutil.CopyToCache(filesState, dest, c.platr, cacheRunOpt)
-
-			c.nonSaveCommand()
-			c.mts.Final.MainState = llbutil.FakeDepend(c.platr, c.mts.Final.MainState, transientState)
-			return nil
-
-			// forcing a solve here wont work as it'll happen before other commands (unless we also forced c.mts.Final.MainState)
-			//
-			//ref, err := llbutil.StateToRef(ctx, c.opt.GwClient, transientState, c.opt.NoCache, c.platr, c.opt.CacheImports.AsMap())
-			//if err != nil {
-			//	return err
-			//}
-			//_, err = ref.ReadDir(ctx, gwclient.ReadDirRequest{Path: "/"}) // force a solve
-			//return err
+			const copyImg = "docker/dockerfile-copy:v0.1.9@sha256:e8f159d3f00786604b93c675ee2783f8dc194bb565e61ca5788f6a6e9d304061"
+			imgOpts := []llb.ImageOption{llb.MarkImageInternal, llb.Platform(c.platr.LLBNative())}
+			opts := []llb.RunOption{
+				llb.ReadonlyRootFS(),
+				llb.Shlexf("copy %s %s", "/0d96e302-5583-44f7-9907-6babb3d9782c/"+dest, dest),
+				cacheRunOpt,
+			}
+			copyState := pllb.Image(copyImg, imgOpts...)
+			run := copyState.Run(opts...).AddMount("/0d96e302-5583-44f7-9907-6babb3d9782c/", filesState)
+			transientState := run.Platform(c.platr.ToLLBPlatform(c.platr.Current()))
+			ref, err := llbutil.StateToRef(ctx, c.opt.GwClient, transientState, c.opt.NoCache, c.platr, c.opt.CacheImports.AsMap())
+			if err != nil {
+				return err
+			}
+			_, err = ref.ReadDir(ctx, gwclient.ReadDirRequest{Path: "/"}) // force a solve
+			return err
 		}
 	}
 
