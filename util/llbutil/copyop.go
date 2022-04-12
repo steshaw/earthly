@@ -92,9 +92,7 @@ func CopyWithRunOptions(srcState pllb.State, src, dest string, platr *platutil.R
 	return destState
 }
 
-// CopyWithRunOptions copies from `src` to `dest` and returns the result in a separate LLB State.
-// This operation is similar llb.Copy, however, it can apply llb.RunOptions (such as a mount)
-// Interanally, the operation runs on the internal COPY image used by Dockerfile.
+// CopyToCache is not used, but maybe should be.
 func CopyToCache(srcState pllb.State, path string, platr *platutil.Resolver, cacheOpt llb.RunOption) pllb.State {
 	// In order to copy files into the CACHE, we first copy files into a new state,
 	// then mount that state under "/0d96e302-5583-44f7-9907-6babb3d9782c" (a random uuid that was picked to avoid conflicting with any user paths),
@@ -111,6 +109,7 @@ func CopyToCache(srcState pllb.State, path string, platr *platutil.Resolver, cac
 	return run.Platform(platr.ToLLBPlatform(platr.Current()))
 }
 
+// FakeDepend creates a dependency on extra states
 func FakeDepend(platr *platutil.Resolver, srcState pllb.State, extraStates ...pllb.State) pllb.State {
 	opts := []llb.RunOption{
 		llb.Args([]string{"false"}),
