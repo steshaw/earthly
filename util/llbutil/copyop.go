@@ -67,13 +67,14 @@ func CopyOp(srcState pllb.State, srcs []string, destState pllb.State, dest strin
 	return destState.File(fa, opts...)
 }
 
+// Docker's internal image for running COPY.
+// Ref: https://github.com/moby/buildkit/blob/v0.9.3/frontend/dockerfile/dockerfile2llb/convert.go#L40
+const copyImg = "docker/dockerfile-copy:v0.1.9@sha256:e8f159d3f00786604b93c675ee2783f8dc194bb565e61ca5788f6a6e9d304061"
+
 // CopyWithRunOptions copies from `src` to `dest` and returns the result in a separate LLB State.
 // This operation is similar llb.Copy, however, it can apply llb.RunOptions (such as a mount)
 // Interanally, the operation runs on the internal COPY image used by Dockerfile.
 func CopyWithRunOptions(srcState pllb.State, src, dest string, platr *platutil.Resolver, opts ...llb.RunOption) pllb.State {
-	// Docker's internal image for running COPY.
-	// Ref: https://github.com/moby/buildkit/blob/v0.9.3/frontend/dockerfile/dockerfile2llb/convert.go#L40
-	const copyImg = "docker/dockerfile-copy:v0.1.9@sha256:e8f159d3f00786604b93c675ee2783f8dc194bb565e61ca5788f6a6e9d304061"
 	// Use the native platform instead of the target platform.
 	imgOpts := []llb.ImageOption{llb.MarkImageInternal, llb.Platform(platr.LLBNative())}
 
@@ -89,6 +90,38 @@ func CopyWithRunOptions(srcState pllb.State, src, dest string, platr *platutil.R
 	destState := run.AddMount("/dest", srcState)
 	destState = destState.Platform(platr.ToLLBPlatform(platr.Current()))
 	return destState
+}
+
+// CopyWithRunOptions copies from `src` to `dest` and returns the result in a separate LLB State.
+// This operation is similar llb.Copy, however, it can apply llb.RunOptions (such as a mount)
+// Interanally, the operation runs on the internal COPY image used by Dockerfile.
+func CopyToCache(srcState pllb.State, path string, platr *platutil.Resolver, cacheOpt llb.RunOption) pllb.State {
+	// In order to copy files into the CACHE, we first copy files into a new state,
+	// then mount that state under "/0d96e302-5583-44f7-9907-6babb3d9782c" (a random uuid that was picked to avoid conflicting with any user paths),
+	// and also mount the CACHE, then use the dockerfile-copy image to copy files into the cache.
+	// We then force buildkit to resolve this opperation before continuing in order to warm the cache.
+	imgOpts := []llb.ImageOption{llb.MarkImageInternal, llb.Platform(platr.LLBNative())}
+	opts := []llb.RunOption{
+		llb.ReadonlyRootFS(),
+		llb.Shlexf("copy %s %s", "/0d96e302-5583-44f7-9907-6babb3d9782c/"+path, path),
+		cacheOpt,
+	}
+	copyState := pllb.Image(copyImg, imgOpts...)
+	run := copyState.Run(opts...).AddMount("/0d96e302-5583-44f7-9907-6babb3d9782c/", srcState)
+	return run.Platform(platr.ToLLBPlatform(platr.Current()))
+}
+
+func FakeDepend(platr *platutil.Resolver, srcState pllb.State, extraStates ...pllb.State) pllb.State {
+	opts := []llb.RunOption{
+		llb.ReadonlyRootFS(),
+		llb.Shlexf("true"),
+	}
+	for i, s := range extraStates {
+		mnt := pllb.AddMount(fmt.Sprintf("/20d84d69-aea8-4905-bbd2-2c3a9f9a0ef7/%d", i), s)
+		opts = append(opts, mnt)
+	}
+	run := srcState.Run(opts...).Root()
+	return run.Platform(platr.ToLLBPlatform(platr.Current()))
 }
 
 // Abs prepends the working dir to the given path, if the
