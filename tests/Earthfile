@@ -1,4 +1,4 @@
-VERSION --use-host-command 0.6
+VERSION --shell-out-anywhere --use-host-command 0.6
 
 ARG DOCKERHUB_USER_SECRET=+secrets/DOCKERHUB_USER
 ARG DOCKERHUB_TOKEN_SECRET=+secrets/DOCKERHUB_TOKEN
@@ -179,6 +179,7 @@ ga:
     BUILD +implicit-ignores
     BUILD +help
     BUILD +cache-cmd
+    BUILD +cache-cmd-copy
     BUILD +ls
     BUILD +ls-subdir
     BUILD +ssh
@@ -981,6 +982,25 @@ cache-cmd:
     RUN test "$(cat ./artifacts2/1)" = "artifact 1"
     RUN test "$(cat ./artifacts2/2)" = "artifact 2"
     DO +RUN_EARTHLY --earthfile=cache-cmd.earth --target=+test-no-sharing
+
+cache-cmd-copy:
+    RUN --no-cache uuidgen > local-data
+
+    RUN echo "VERSION --use-cache-command 0.6
+FROM alpine:3.15
+test:
+    CACHE /my-cache
+    COPY local-data /my-cache/.
+    " > Earthfile
+    DO +RUN_EARTHLY --target=+test
+
+    RUN echo "VERSION --use-cache-command 0.6
+FROM alpine:3.15
+test:
+    CACHE /my-cache
+    RUN cat /my-cache/local-data
+    " > Earthfile
+    DO +RUN_EARTHLY --target=+test --output_contains="$(cat local-data)"
 
 ls:
     COPY ls.earth Earthfile
