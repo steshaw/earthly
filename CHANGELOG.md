@@ -8,6 +8,15 @@ All notable changes to [Earthly](https://github.com/earthly/earthly) will be doc
 
 - `--cache-from` earthly flag, which allows defining multiple ordered caches. [#1693](https://github.com/earthly/earthly/issues/1693)
 
+### Fixed
+
+- Fixed WAIT/END related bug which prevent `WITH DOCKER --load` from building referenced target.
+
+### Changed
+
+- Removed warning stating that `WAIT/END code is experimental and may be incomplete` -- it is still experimental; however, it now has a higher degree
+  of test-coverage. It can be enabled with `VERSION --wait-block 0.6`.
+
 ## v0.6.21 - 2022-08-04
 
 ### Added
